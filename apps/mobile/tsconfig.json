@@ -1,0 +1,10 @@
+{
+  "extends": "@split-wise/config-tsconfig/react-native.json",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./src/*"]
+    }
+  },
+  "include": ["app/**/*", "src/**/*", "*.d.ts", "expo-env.d.ts"]
+}

@@ -1,0 +1,40 @@
+{
+  "name": "split-wise",
+  "version": "0.0.0",
+  "private": true,
+  "packageManager": "pnpm@9.15.4",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md,yml,yaml}\"",
+    "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,json,md,yml,yaml}\"",
+    "infra:up": "docker compose -f infra/docker-compose.yml up -d",
+    "infra:down": "docker compose -f infra/docker-compose.yml down",
+    "infra:logs": "docker compose -f infra/docker-compose.yml logs -f",
+    "db:migrate": "pnpm --filter @split-wise/prisma migrate:dev",
+    "db:studio": "pnpm --filter @split-wise/prisma studio",
+    "prepare": "husky"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "husky": "^9.1.7",
+    "lint-staged": "^15.3.0",
+    "prettier": "^3.4.2",
+    "turbo": "^2.3.3",
+    "typescript": "^5.7.2"
+  },
+  "lint-staged": {
+    "*.{ts,tsx,js,jsx}": [
+      "prettier --write"
+    ],
+    "*.{json,md,yml,yaml}": [
+      "prettier --write"
+    ]
+  }
+}

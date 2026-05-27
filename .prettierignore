@@ -1,0 +1,11 @@
+node_modules
+dist
+build
+.turbo
+.next
+.expo
+coverage
+pnpm-lock.yaml
+libs/prisma/migrations
+apps/mobile/ios
+apps/mobile/android

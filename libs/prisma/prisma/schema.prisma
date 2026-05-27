@@ -1,0 +1,365 @@
+// Splitwise clone — source-of-truth data model.
+// See ~/.claude/plans/do-you-know-about-cheerful-canyon.md for design notes.
+//
+// Conventions:
+//   - Money:     Decimal(14,2), major units (not cents)
+//   - IDs:       cuid()
+//   - Times:     all UTC; *AtUTC stored without TZ; updatedAt auto-managed
+//   - Soft delete on Expense/Settlement/Group via deletedAt
+//   - Append-only audit on Expense via ExpenseAudit
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------- Enums ----------
+
+enum GroupRole {
+  OWNER
+  ADMIN
+  MEMBER
+}
+
+enum SplitType {
+  EQUAL
+  EXACT
+  PERCENT
+  SHARES
+  ITEMIZED
+}
+
+enum ExpenseStatus {
+  ACTIVE
+  DELETED
+}
+
+enum NotificationKind {
+  EXPENSE_ADDED
+  EXPENSE_EDITED
+  SETTLEMENT_RECORDED
+  YOU_OWE
+  PAYMENT_REMINDER
+  DIGEST
+  RECEIPT_READY
+}
+
+enum DevicePlatform {
+  IOS
+  ANDROID
+  WEB
+}
+
+enum ReceiptStatus {
+  UPLOADED
+  PROCESSING
+  PARSED
+  FAILED
+  CONFIRMED
+}
+
+enum AuthProvider {
+  LOCAL
+  GOOGLE
+}
+
+// ---------- Core ----------
+
+model User {
+  id              String       @id @default(cuid())
+  email           String       @unique
+  emailVerifiedAt DateTime?
+  passwordHash    String?
+  displayName     String
+  avatarKey       String?
+  homeCurrency    String       @default("USD")
+  locale          String       @default("en-US")
+  authProvider    AuthProvider @default(LOCAL)
+  googleSub       String?      @unique
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  memberships     GroupMember[]
+  paidExpenses    Expense[]    @relation("paidBy")
+  createdExpenses Expense[]    @relation("createdBy")
+  shares          ExpenseShare[]
+  settlementsFrom Settlement[] @relation("from")
+  settlementsTo   Settlement[] @relation("to")
+  devices         Device[]
+  notifications   Notification[]
+  refreshTokens   RefreshToken[]
+  receipts        ReceiptScan[]
+  auditEntries    ExpenseAudit[]
+  invitesSent     GroupInvite[] @relation("invitedBy")
+}
+
+model RefreshToken {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String    @unique
+  familyId  String
+  userAgent String?
+  ip        String?
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId, expiresAt])
+  @@index([familyId])
+}
+
+model Group {
+  id              String    @id @default(cuid())
+  name            String
+  defaultCurrency String    @default("USD")
+  simplifyDebts   Boolean   @default(true)
+  avatarKey       String?
+  createdById     String
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  deletedAt       DateTime?
+
+  members     GroupMember[]
+  expenses    Expense[]
+  settlements Settlement[]
+  invites     GroupInvite[]
+
+  @@index([deletedAt])
+}
+
+model GroupMember {
+  id       String    @id @default(cuid())
+  groupId  String
+  userId   String
+  role     GroupRole @default(MEMBER)
+  joinedAt DateTime  @default(now())
+  leftAt   DateTime?
+
+  group Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([groupId, userId])
+  @@index([userId])
+}
+
+model GroupInvite {
+  id          String    @id @default(cuid())
+  groupId     String
+  email       String?
+  tokenHash   String    @unique
+  invitedById String
+  expiresAt   DateTime
+  acceptedAt  DateTime?
+  createdAt   DateTime  @default(now())
+
+  group     Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  invitedBy User  @relation("invitedBy", fields: [invitedById], references: [id])
+
+  @@index([groupId])
+}
+
+model Category {
+  id       String     @id @default(cuid())
+  key      String     @unique
+  label    String
+  icon     String
+  parent   String?
+  expenses Expense[]
+}
+
+// ---------- Money ----------
+
+model Expense {
+  id          String        @id @default(cuid())
+  groupId     String
+  paidById    String
+  createdById String
+  categoryId  String?
+  description String
+  notes       String?
+  currency    String
+  amount      Decimal       @db.Decimal(14, 2)
+  occurredAt  DateTime
+  splitType   SplitType
+  status      ExpenseStatus @default(ACTIVE)
+  version     Int           @default(1)
+  receiptId   String?       @unique
+  recurringId String?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  deletedAt   DateTime?
+
+  group     Group         @relation(fields: [groupId], references: [id])
+  paidBy    User          @relation("paidBy", fields: [paidById], references: [id])
+  createdBy User          @relation("createdBy", fields: [createdById], references: [id])
+  category  Category?     @relation(fields: [categoryId], references: [id])
+  receipt   ReceiptScan?  @relation(fields: [receiptId], references: [id])
+  items     ExpenseItem[]
+  shares    ExpenseShare[]
+  audits    ExpenseAudit[]
+  recurring RecurringTemplate? @relation(fields: [recurringId], references: [id])
+
+  @@index([groupId, occurredAt])
+  @@index([paidById])
+  @@index([deletedAt])
+}
+
+model ExpenseItem {
+  id        String   @id @default(cuid())
+  expenseId String
+  label     String
+  amount    Decimal  @db.Decimal(14, 2)
+  quantity  Int      @default(1)
+  taxShare  Decimal? @db.Decimal(14, 2)
+  tipShare  Decimal? @db.Decimal(14, 2)
+  position  Int      @default(0)
+
+  expense Expense        @relation(fields: [expenseId], references: [id], onDelete: Cascade)
+  shares  ExpenseShare[]
+}
+
+model ExpenseShare {
+  id        String   @id @default(cuid())
+  expenseId String
+  itemId    String?
+  userId    String
+  amount    Decimal  @db.Decimal(14, 2)
+  rawUnit   Decimal? @db.Decimal(14, 4)
+
+  expense Expense      @relation(fields: [expenseId], references: [id], onDelete: Cascade)
+  item    ExpenseItem? @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  user    User         @relation(fields: [userId], references: [id])
+
+  @@index([userId, expenseId])
+  @@index([expenseId])
+}
+
+model Settlement {
+  id         String    @id @default(cuid())
+  groupId    String?
+  fromUserId String
+  toUserId   String
+  currency   String
+  amount     Decimal   @db.Decimal(14, 2)
+  occurredAt DateTime
+  method     String?
+  note       String?
+  createdAt  DateTime  @default(now())
+  deletedAt  DateTime?
+
+  group    Group? @relation(fields: [groupId], references: [id])
+  fromUser User   @relation("from", fields: [fromUserId], references: [id])
+  toUser   User   @relation("to", fields: [toUserId], references: [id])
+
+  @@index([groupId])
+  @@index([fromUserId, toUserId])
+}
+
+model ExpenseAudit {
+  id        String   @id @default(cuid())
+  expenseId String
+  actorId   String
+  action    String
+  before    Json?
+  after     Json?
+  createdAt DateTime @default(now())
+
+  expense Expense @relation(fields: [expenseId], references: [id], onDelete: Cascade)
+  actor   User    @relation(fields: [actorId], references: [id])
+
+  @@index([expenseId, createdAt])
+}
+
+// ---------- FX + Currency ----------
+
+model Currency {
+  code     String @id
+  name     String
+  symbol   String
+  decimals Int    @default(2)
+}
+
+model FxRate {
+  id        String   @id @default(cuid())
+  base      String
+  quote     String
+  rate      Decimal  @db.Decimal(20, 10)
+  asOf      DateTime
+  source    String
+  fetchedAt DateTime @default(now())
+
+  @@unique([base, quote, asOf])
+  @@index([asOf])
+}
+
+// ---------- Receipts ----------
+
+model ReceiptScan {
+  id             String        @id @default(cuid())
+  userId         String
+  objectKey      String
+  contentType    String
+  byteSize       Int
+  status         ReceiptStatus @default(UPLOADED)
+  rawOcrText     String?
+  parsedItems    Json?
+  parsedTotal    Decimal?      @db.Decimal(14, 2)
+  parsedCurrency String?
+  errorMessage   String?
+  createdAt      DateTime      @default(now())
+  processedAt    DateTime?
+
+  user    User     @relation(fields: [userId], references: [id])
+  expense Expense?
+}
+
+// ---------- Notifications + Devices ----------
+
+model Device {
+  id         String         @id @default(cuid())
+  userId     String
+  platform   DevicePlatform
+  fcmToken   String         @unique
+  appVersion String?
+  lastSeenAt DateTime       @default(now())
+  revokedAt  DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String
+  kind      NotificationKind
+  title     String
+  body      String
+  data      Json?
+  readAt    DateTime?
+  createdAt DateTime         @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, readAt, createdAt])
+}
+
+// ---------- Recurring ----------
+
+model RecurringTemplate {
+  id              String    @id @default(cuid())
+  groupId         String
+  templateExpense Json
+  cron            String
+  nextRunAt       DateTime
+  lastRunAt       DateTime?
+  active          Boolean   @default(true)
+  createdAt       DateTime  @default(now())
+
+  generatedExpenses Expense[]
+}
