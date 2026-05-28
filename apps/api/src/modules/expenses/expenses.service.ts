@@ -2,12 +2,24 @@ import { Inject, Injectable } from '@nestjs/common';
 import { TRPCError } from '@trpc/server';
 import type { Prisma } from '@prisma/client';
 import { Decimal as PrismaDecimal } from '@prisma/client/runtime/library';
-import { splitEqually } from '@split-wise/shared';
+import {
+  splitEqually,
+  splitByShares,
+  splitByPercentage,
+  splitByExactAmounts,
+  type ShareOutput,
+} from '@split-wise/shared';
 import { PrismaService } from '../../common/prisma/prisma.service.js';
 import { RedisService } from '../../common/redis/redis.service.js';
 import { GroupsService } from '../groups/groups.service.js';
 
 const BALANCES_CACHE_PREFIX = 'balances:group:';
+
+export type SplitSpec =
+  | { type: 'EQUAL'; userIds: string[] }
+  | { type: 'SHARES'; units: Array<{ userId: string; units: string }> }
+  | { type: 'PERCENT'; percents: Array<{ userId: string; percent: string }> }
+  | { type: 'EXACT'; exactAmounts: Array<{ userId: string; amount: string }> };
 
 export interface CreateExpenseInput {
   actorId: string;
@@ -19,7 +31,7 @@ export interface CreateExpenseInput {
   currency: string;
   occurredAt: string;
   categoryKey?: string;
-  splitAmongUserIds: string[];
+  split: SplitSpec;
   idempotencyKey?: string;
 }
 
@@ -34,7 +46,43 @@ export interface UpdateExpenseInput {
   occurredAt?: string;
   categoryKey?: string;
   paidById?: string;
-  splitAmongUserIds?: string[];
+  /** Omit to leave split unchanged. */
+  split?: SplitSpec;
+}
+
+function participantIdsOf(split: SplitSpec): string[] {
+  switch (split.type) {
+    case 'EQUAL':
+      return split.userIds;
+    case 'SHARES':
+      return split.units.map((s) => s.userId);
+    case 'PERCENT':
+      return split.percents.map((p) => p.userId);
+    case 'EXACT':
+      return split.exactAmounts.map((a) => a.userId);
+  }
+}
+
+function computeSharesForSplit(amount: string, split: SplitSpec): ShareOutput[] {
+  switch (split.type) {
+    case 'EQUAL':
+      return splitEqually({ total: amount, memberIds: split.userIds });
+    case 'SHARES':
+      return splitByShares({
+        total: amount,
+        sharesByMember: split.units.map((u) => ({ userId: u.userId, shares: u.units })),
+      });
+    case 'PERCENT':
+      return splitByPercentage({
+        total: amount,
+        percentsByMember: split.percents.map((p) => ({ userId: p.userId, percent: p.percent })),
+      });
+    case 'EXACT':
+      return splitByExactAmounts({
+        total: amount,
+        amountsByMember: split.exactAmounts.map((a) => ({ userId: a.userId, amount: a.amount })),
+      });
+  }
 }
 
 @Injectable()
@@ -47,16 +95,22 @@ export class ExpensesService {
 
   async create(input: CreateExpenseInput) {
     await this.groups.requireRole(input.actorId, input.groupId, ['OWNER', 'ADMIN', 'MEMBER']);
-    await this.assertMembersOfGroup(input.groupId, [input.paidById, ...input.splitAmongUserIds]);
+    const participants = participantIdsOf(input.split);
+    await this.assertMembersOfGroup(input.groupId, [input.paidById, ...participants]);
 
     const categoryId = input.categoryKey
       ? (await this.prisma.category.findUnique({ where: { key: input.categoryKey } }))?.id
       : undefined;
 
-    const shares = splitEqually({
-      total: input.amount,
-      memberIds: input.splitAmongUserIds,
-    });
+    let shares: ShareOutput[];
+    try {
+      shares = computeSharesForSplit(input.amount, input.split);
+    } catch (err) {
+      throw new TRPCError({
+        code: 'BAD_REQUEST',
+        message: err instanceof Error ? err.message : 'invalid split',
+      });
+    }
 
     const expense = await this.prisma.$transaction(async (tx) => {
       const created = await tx.expense.create({
@@ -70,11 +124,12 @@ export class ExpensesService {
           currency: input.currency,
           amount: new PrismaDecimal(input.amount),
           occurredAt: new Date(input.occurredAt),
-          splitType: 'EQUAL',
+          splitType: input.split.type,
           shares: {
             create: shares.map((s) => ({
               userId: s.userId,
               amount: new PrismaDecimal(s.amount),
+              rawUnit: s.rawUnit ? new PrismaDecimal(s.rawUnit) : null,
             })),
           },
         },
@@ -128,10 +183,12 @@ export class ExpensesService {
       ...this.toListItemDTO(expense),
       notes: expense.notes,
       createdBy: expense.createdBy,
+      splitType: expense.splitType,
       shares: expense.shares.map((s) => ({
         userId: s.userId,
         displayName: s.user.displayName,
         amount: s.amount.toFixed(2),
+        rawUnit: s.rawUnit ? s.rawUnit.toString() : null,
       })),
       version: expense.version,
     };
@@ -153,8 +210,10 @@ export class ExpensesService {
     const newPaidById = input.paidById ?? existing.paidById;
     const newAmount = input.amount ? new PrismaDecimal(input.amount) : existing.amount;
     const newCurrency = input.currency ?? existing.currency;
-    const newMemberIds = input.splitAmongUserIds ?? existing.shares.map((s) => s.userId);
-    await this.assertMembersOfGroup(existing.groupId, [newPaidById, ...newMemberIds]);
+    const participants = input.split
+      ? participantIdsOf(input.split)
+      : existing.shares.map((s) => s.userId);
+    await this.assertMembersOfGroup(existing.groupId, [newPaidById, ...participants]);
 
     const categoryId =
       input.categoryKey !== undefined
@@ -163,10 +222,35 @@ export class ExpensesService {
           : null
         : existing.categoryId;
 
-    const newShares =
-      input.splitAmongUserIds || input.amount
-        ? splitEqually({ total: newAmount.toFixed(2), memberIds: newMemberIds })
-        : null;
+    // Recompute shares if (a) caller explicitly changed split OR (b) only the
+    // amount changed, in which case we re-split on the same member set with
+    // EQUAL (legacy behaviour preserved when no explicit split provided).
+    let newShares: ShareOutput[] | null = null;
+    let newSplitType = existing.splitType;
+    if (input.split) {
+      try {
+        newShares = computeSharesForSplit(newAmount.toFixed(2), input.split);
+      } catch (err) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: err instanceof Error ? err.message : 'invalid split',
+        });
+      }
+      newSplitType = input.split.type;
+    } else if (input.amount) {
+      // Amount changed but split type unchanged — only safe to re-split for EQUAL.
+      // For SHARES/PERCENT/EXACT, the client must resend the split payload.
+      if (existing.splitType !== 'EQUAL') {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: `changing amount on a ${existing.splitType} split requires resending the split payload`,
+        });
+      }
+      newShares = splitEqually({
+        total: newAmount.toFixed(2),
+        memberIds: existing.shares.map((s) => s.userId),
+      });
+    }
 
     const updated = await this.prisma.$transaction(async (tx) => {
       const result = await tx.expense.update({
@@ -179,6 +263,7 @@ export class ExpensesService {
           occurredAt: input.occurredAt ? new Date(input.occurredAt) : existing.occurredAt,
           categoryId,
           paidById: newPaidById,
+          splitType: newSplitType,
           version: { increment: 1 },
           ...(newShares && {
             shares: {
@@ -186,6 +271,7 @@ export class ExpensesService {
               create: newShares.map((s) => ({
                 userId: s.userId,
                 amount: new PrismaDecimal(s.amount),
+                rawUnit: s.rawUnit ? new PrismaDecimal(s.rawUnit) : null,
               })),
             },
           }),

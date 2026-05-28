@@ -27,11 +27,10 @@ export const zExpenseItem = z.object({
 export type ExpenseItemDTO = z.infer<typeof zExpenseItem>;
 
 /**
- * Phase 3 keeps split types minimal: only EQUAL. Phase 4 will add EXACT / PERCENT /
- * SHARES via a discriminated union. For now, clients send the list of member ids
- * to split among, and the server computes shares deterministically.
+ * Shared base fields across every split-type variant. The discriminator is
+ * `splitType`; per-variant shape lives in the variant schemas below.
  */
-export const zExpenseCreate = z.object({
+const expenseBaseShape = {
   groupId: zCuid,
   paidById: zCuid,
   description: z.string().min(1).max(500),
@@ -40,13 +39,70 @@ export const zExpenseCreate = z.object({
   currency: zCurrencyCode,
   occurredAt: zIsoDate,
   categoryKey: z.string().optional(),
+  idempotencyKey: z.string().max(100).optional(),
+};
+
+const zExpenseEqualPayload = z.object({
+  ...expenseBaseShape,
   splitType: z.literal('EQUAL'),
   splitAmongUserIds: z.array(zCuid).min(1),
-  idempotencyKey: z.string().max(100).optional(),
 });
+
+/** SHARES — proportional split. `units` are arbitrary non-negative numbers (e.g. 1, 2, 3). */
+const zExpenseSharesPayload = z.object({
+  ...expenseBaseShape,
+  splitType: z.literal('SHARES'),
+  shareUnits: z
+    .array(
+      z.object({
+        userId: zCuid,
+        units: z
+          .string()
+          .regex(/^\d+(\.\d{1,4})?$/, 'must be a non-negative decimal like "2" or "1.5"'),
+      }),
+    )
+    .min(1),
+});
+
+/** PERCENT — explicit percentage per member; must sum to exactly 100. */
+const zExpensePercentPayload = z.object({
+  ...expenseBaseShape,
+  splitType: z.literal('PERCENT'),
+  percents: z
+    .array(
+      z.object({
+        userId: zCuid,
+        percent: z
+          .string()
+          .regex(/^\d+(\.\d{1,4})?$/, 'must be a non-negative decimal like "33.33"'),
+      }),
+    )
+    .min(1),
+});
+
+/** EXACT — explicit money amount per member; must sum to `amount`. */
+const zExpenseExactPayload = z.object({
+  ...expenseBaseShape,
+  splitType: z.literal('EXACT'),
+  exactAmounts: z
+    .array(
+      z.object({
+        userId: zCuid,
+        amount: zNonNegativeMoney,
+      }),
+    )
+    .min(1),
+});
+
+export const zExpenseCreate = z.discriminatedUnion('splitType', [
+  zExpenseEqualPayload,
+  zExpenseSharesPayload,
+  zExpensePercentPayload,
+  zExpenseExactPayload,
+]);
 export type ExpenseCreateDTO = z.infer<typeof zExpenseCreate>;
 
-export const zExpenseUpdate = z.object({
+const updateBaseShape = {
   expenseId: zCuid,
   expectedVersion: z.number().int().min(1),
   description: z.string().min(1).max(500).optional(),
@@ -56,6 +112,59 @@ export const zExpenseUpdate = z.object({
   occurredAt: zIsoDate.optional(),
   categoryKey: z.string().optional(),
   paidById: zCuid.optional(),
-  splitAmongUserIds: z.array(zCuid).min(1).optional(),
+};
+
+/**
+ * Update is also a discriminated union over `splitType`. Omit `splitType` to
+ * leave the split unchanged; specify one to replace the shares entirely.
+ */
+const zExpenseUpdateEqual = z.object({
+  ...updateBaseShape,
+  splitType: z.literal('EQUAL'),
+  splitAmongUserIds: z.array(zCuid).min(1),
 });
+
+const zExpenseUpdateShares = z.object({
+  ...updateBaseShape,
+  splitType: z.literal('SHARES'),
+  shareUnits: z
+    .array(
+      z.object({
+        userId: zCuid,
+        units: z.string().regex(/^\d+(\.\d{1,4})?$/, 'must be a non-negative decimal'),
+      }),
+    )
+    .min(1),
+});
+
+const zExpenseUpdatePercent = z.object({
+  ...updateBaseShape,
+  splitType: z.literal('PERCENT'),
+  percents: z
+    .array(
+      z.object({
+        userId: zCuid,
+        percent: z.string().regex(/^\d+(\.\d{1,4})?$/, 'must be a non-negative decimal'),
+      }),
+    )
+    .min(1),
+});
+
+const zExpenseUpdateExact = z.object({
+  ...updateBaseShape,
+  splitType: z.literal('EXACT'),
+  exactAmounts: z
+    .array(z.object({ userId: zCuid, amount: zNonNegativeMoney }))
+    .min(1),
+});
+
+const zExpenseUpdateNoChange = z.object(updateBaseShape);
+
+export const zExpenseUpdate = z.union([
+  zExpenseUpdateNoChange,
+  zExpenseUpdateEqual,
+  zExpenseUpdateShares,
+  zExpenseUpdatePercent,
+  zExpenseUpdateExact,
+]);
 export type ExpenseUpdateDTO = z.infer<typeof zExpenseUpdate>;

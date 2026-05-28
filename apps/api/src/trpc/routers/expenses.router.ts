@@ -3,11 +3,43 @@ import {
   zExpenseCreate,
   zExpenseUpdate,
   zSettlementCreate,
+  type ExpenseCreateDTO,
+  type ExpenseUpdateDTO,
 } from '@split-wise/shared';
 import { router, protectedProcedure } from '../trpc.js';
-import { ExpensesService } from '../../modules/expenses/expenses.service.js';
+import {
+  ExpensesService,
+  type SplitSpec,
+} from '../../modules/expenses/expenses.service.js';
 import { SettlementsService } from '../../modules/expenses/settlements.service.js';
 import { BalancesService } from '../../modules/expenses/balances.service.js';
+
+function toSplitSpec(input: ExpenseCreateDTO): SplitSpec {
+  switch (input.splitType) {
+    case 'EQUAL':
+      return { type: 'EQUAL', userIds: input.splitAmongUserIds };
+    case 'SHARES':
+      return { type: 'SHARES', units: input.shareUnits };
+    case 'PERCENT':
+      return { type: 'PERCENT', percents: input.percents };
+    case 'EXACT':
+      return { type: 'EXACT', exactAmounts: input.exactAmounts };
+  }
+}
+
+function toUpdateSplitSpec(input: ExpenseUpdateDTO): SplitSpec | undefined {
+  if (!('splitType' in input) || input.splitType === undefined) return undefined;
+  switch (input.splitType) {
+    case 'EQUAL':
+      return { type: 'EQUAL', userIds: input.splitAmongUserIds };
+    case 'SHARES':
+      return { type: 'SHARES', units: input.shareUnits };
+    case 'PERCENT':
+      return { type: 'PERCENT', percents: input.percents };
+    case 'EXACT':
+      return { type: 'EXACT', exactAmounts: input.exactAmounts };
+  }
+}
 
 let expensesService: ExpensesService;
 let settlementsService: SettlementsService;
@@ -35,7 +67,7 @@ export const expensesRouter = router({
       currency: input.currency,
       occurredAt: input.occurredAt,
       categoryKey: input.categoryKey,
-      splitAmongUserIds: input.splitAmongUserIds,
+      split: toSplitSpec(input),
       idempotencyKey: input.idempotencyKey,
     }),
   ),
@@ -60,7 +92,7 @@ export const expensesRouter = router({
       occurredAt: input.occurredAt,
       categoryKey: input.categoryKey,
       paidById: input.paidById,
-      splitAmongUserIds: input.splitAmongUserIds,
+      split: toUpdateSplitSpec(input),
     }),
   ),
 

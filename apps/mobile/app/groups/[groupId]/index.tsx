@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Alert, Pressable, ScrollView, Share, Text, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { formatMoney } from '@split-wise/shared';
@@ -34,6 +34,12 @@ export default function GroupDetailScreen() {
   const [latestUrl, setLatestUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showInvites, setShowInvites] = useState(false);
+  const [simplify, setSimplify] = useState(false);
+
+  // Seed Simplify toggle from the group's configured default once it loads.
+  useEffect(() => {
+    if (group.data?.simplifyDebts !== undefined) setSimplify(group.data.simplifyDebts);
+  }, [group.data?.simplifyDebts]);
 
   const createInvite = trpc.groups.createInvite.useMutation({
     onSuccess: async (data) => {
@@ -175,14 +181,24 @@ export default function GroupDetailScreen() {
           </View>
         </View>
 
-        {/* Who owes whom */}
-        {balances.data && balances.data.pairwise.length > 0 ? (
+        {/* Who owes whom (toggleable: pairwise vs simplified) */}
+        {balances.data && (balances.data.pairwise.length > 0 || balances.data.simplified.length > 0) ? (
           <View className="mt-6 rounded-xl border border-slate-200 bg-white p-5">
-            <Text className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-              Who owes whom
-            </Text>
+            <View className="flex-row items-center justify-between">
+              <Text className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Who owes whom
+              </Text>
+              <Pressable
+                onPress={() => setSimplify((v) => !v)}
+                className={`rounded-full border px-3 py-1 ${simplify ? 'border-slate-900 bg-slate-900' : 'border-slate-300 bg-white'}`}
+              >
+                <Text className={`text-xs ${simplify ? 'text-white' : 'text-slate-700'}`}>
+                  {simplify ? 'Simplified ✓' : 'Simplify debts'}
+                </Text>
+              </Pressable>
+            </View>
             <View className="mt-3 gap-1">
-              {balances.data.pairwise.map((p, i) => {
+              {(simplify ? balances.data.simplified : balances.data.pairwise).map((p, i) => {
                 const debtor = memberById.get(p.fromUserId)?.displayName ?? 'Someone';
                 const creditor = memberById.get(p.toUserId)?.displayName ?? 'Someone';
                 return (
@@ -194,6 +210,11 @@ export default function GroupDetailScreen() {
                 );
               })}
             </View>
+            <Text className="mt-2 text-xs text-slate-400">
+              {simplify
+                ? 'Fewest transfers (per-currency). FX is not applied.'
+                : 'Raw pairwise debts.'}
+            </Text>
           </View>
         ) : null}
 
@@ -235,20 +256,29 @@ export default function GroupDetailScreen() {
                         <Text className="text-sm font-semibold text-slate-900">
                           {formatMoney(e.amount, e.currency)}
                         </Text>
-                        <Pressable
-                          onPress={() =>
-                            Alert.alert('Delete expense', `Delete "${e.description}"?`, [
-                              { text: 'Cancel', style: 'cancel' },
-                              {
-                                text: 'Delete',
-                                style: 'destructive',
-                                onPress: () => deleteExpense.mutate({ expenseId: e.id }),
-                              },
-                            ])
-                          }
-                        >
-                          <Text className="mt-1 text-xs text-rose-600">Delete</Text>
-                        </Pressable>
+                        <View className="mt-1 flex-row gap-3">
+                          <Pressable
+                            onPress={() =>
+                              router.push(`/groups/${groupId}/expense/${e.id}`)
+                            }
+                          >
+                            <Text className="text-xs text-slate-600">Edit</Text>
+                          </Pressable>
+                          <Pressable
+                            onPress={() =>
+                              Alert.alert('Delete expense', `Delete "${e.description}"?`, [
+                                { text: 'Cancel', style: 'cancel' },
+                                {
+                                  text: 'Delete',
+                                  style: 'destructive',
+                                  onPress: () => deleteExpense.mutate({ expenseId: e.id }),
+                                },
+                              ])
+                            }
+                          >
+                            <Text className="text-xs text-rose-600">Delete</Text>
+                          </Pressable>
+                        </View>
                       </View>
                     </View>
                   </View>
