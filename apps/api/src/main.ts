@@ -17,12 +17,14 @@ import { ExpensesService } from './modules/expenses/expenses.service.js';
 import { SettlementsService } from './modules/expenses/settlements.service.js';
 import { BalancesService } from './modules/expenses/balances.service.js';
 import { ReceiptsService } from './modules/receipts/receipts.service.js';
+import { FxService } from './modules/fx/fx.service.js';
 import { appRouter } from './trpc/app.router.js';
 import { createContext } from './trpc/context.js';
 import { attachAuthServices } from './trpc/routers/auth.router.js';
 import { attachGroupsServices } from './trpc/routers/groups.router.js';
 import { attachExpensesServices } from './trpc/routers/expenses.router.js';
 import { attachReceiptsServices } from './trpc/routers/receipts.router.js';
+import { attachFxServices } from './trpc/routers/fx.router.js';
 
 async function bootstrap() {
   const env = loadEnv();
@@ -56,6 +58,9 @@ async function bootstrap() {
   });
   attachReceiptsServices({
     receipts: app.get(ReceiptsService),
+  });
+  attachFxServices({
+    fx: app.get(FxService),
   });
 
   expressApp.use(

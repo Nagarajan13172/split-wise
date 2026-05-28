@@ -64,4 +64,11 @@ export class UsersService {
       data: { passwordHash },
     });
   }
+
+  updateHomeCurrency(userId: string, homeCurrency: string) {
+    return this.prisma.user.update({
+      where: { id: userId },
+      data: { homeCurrency },
+    });
+  }
 }

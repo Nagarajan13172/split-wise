@@ -1,11 +1,13 @@
 import pino from 'pino';
 import { Worker, Queue, type ConnectionOptions } from 'bullmq';
+import { Redis } from 'ioredis';
 import { PrismaClient } from '@prisma/client';
 import { S3Client } from '@aws-sdk/client-s3';
 import { StubOcrProvider } from './ocr/stub-provider.js';
 import { TesseractOcrProvider } from './ocr/tesseract-provider.js';
 import { processOcrJob, type OcrJobPayload } from './ocr/ocr-processor.js';
 import type { OcrProvider } from './ocr/provider.js';
+import { processFxJob } from './fx/fx-processor.js';
 
 const log = pino({
   level: process.env.LOG_LEVEL ?? 'info',
@@ -29,6 +31,11 @@ const connection: ConnectionOptions = {
 };
 
 const prisma = new PrismaClient();
+
+// Side-channel Redis client used by the FX processor to invalidate the API
+// cache key after each write. Keeping it separate from BullMQ's own pool so
+// that closing the queues doesn't kick the regular client mid-call.
+const redis = new Redis(redisUrl, { lazyConnect: false, maxRetriesPerRequest: 3 });
 
 const s3 = new S3Client({
   endpoint: process.env.S3_ENDPOINT,
@@ -91,10 +98,52 @@ ocrWorker.on('failed', (job, err) =>
   log.error({ jobId: job?.id, receiptScanId: job?.data.receiptScanId, err }, 'ocr job failed'),
 );
 
+// --- FX cron: Frankfurter publishes once daily ~16:00 CET; we re-pull at
+// 16:30 UTC which is ~17:30 CET / ~18:30 CEST — comfortably after publish.
+// Cron is configurable via FX_CRON for tests / local fixtures.
+const FX_CRON = process.env.FX_CRON ?? '30 16 * * *';
+const fxQueue = new Queue('fx', { connection });
+const fxWorker = new Worker(
+  'fx',
+  async (job) => {
+    log.info({ jobId: job.id, name: job.name }, 'fx job processing');
+    return processFxJob({ prisma, redis, log });
+  },
+  { connection, concurrency: 1 },
+);
+fxWorker.on('ready', () => log.info({ cron: FX_CRON }, 'fx worker ready'));
+fxWorker.on('completed', (job, result) =>
+  log.info({ jobId: job.id, result }, 'fx job completed'),
+);
+fxWorker.on('failed', (job, err) => log.error({ jobId: job?.id, err }, 'fx job failed'));
+
+async function ensureFxCron(): Promise<void> {
+  // Drop any pre-existing repeats so a changed cron actually takes effect.
+  const existing = await fxQueue.getRepeatableJobs();
+  for (const r of existing) await fxQueue.removeRepeatableByKey(r.key);
+  await fxQueue.add('fx-daily', null, { repeat: { pattern: FX_CRON, tz: 'UTC' } });
+
+  // First-run priming: if there are zero FxRate rows yet, kick a job now so a
+  // fresh dev environment has rates without waiting up to 24h.
+  const count = await prisma.fxRate.count();
+  if (count === 0) {
+    log.info('no FxRate rows yet — priming fx pull now');
+    await fxQueue.add('fx-prime', null);
+  }
+}
+void ensureFxCron().catch((err) => log.error({ err }, 'fx cron setup failed'));
+
 const shutdown = async (signal: string) => {
   log.info({ signal }, 'shutting down worker');
-  await Promise.all([demoWorker.close(), ocrWorker.close(), demoQueue.close()]);
+  await Promise.all([
+    demoWorker.close(),
+    ocrWorker.close(),
+    fxWorker.close(),
+    demoQueue.close(),
+    fxQueue.close(),
+  ]);
   await prisma.$disconnect();
+  await redis.quit().catch(() => null);
   s3.destroy();
   process.exit(0);
 };

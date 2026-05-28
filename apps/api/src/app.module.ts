@@ -10,6 +10,7 @@ import { UsersModule } from './modules/users/users.module.js';
 import { AuthModule } from './modules/auth/auth.module.js';
 import { GroupsModule } from './modules/groups/groups.module.js';
 import { ReceiptsModule } from './modules/receipts/receipts.module.js';
+import { FxModule } from './modules/fx/fx.module.js';
 import { ExpensesModule } from './modules/expenses/expenses.module.js';
 
 @Module({
@@ -32,6 +33,7 @@ import { ExpensesModule } from './modules/expenses/expenses.module.js';
     AuthModule,
     GroupsModule,
     ReceiptsModule,
+    FxModule,
     ExpensesModule,
   ],
 })

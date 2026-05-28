@@ -10,6 +10,7 @@ import { VerifyEmail } from './pages/VerifyEmail.js';
 import { Groups } from './pages/Groups.js';
 import { GroupDetail } from './pages/GroupDetail.js';
 import { InviteAccept } from './pages/InviteAccept.js';
+import { Settings } from './pages/Settings.js';
 
 export function App() {
   const { user, ready } = useAuth();
@@ -50,6 +51,9 @@ export function App() {
   }
 
   // Authed routes
+  if (loc.path === '/settings') {
+    return <Settings />;
+  }
   const groupMatch = loc.path.match(/^\/groups\/(.+)$/);
   if (groupMatch) {
     return <GroupDetail groupId={groupMatch[1]!} />;

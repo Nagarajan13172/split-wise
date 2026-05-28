@@ -157,6 +157,25 @@ export function GroupDetail({ groupId }: { groupId: string }) {
             })}
           </ul>
         )}
+        {balances.data?.homeTotal && myNet.length > 0 && balances.data.homeTotal.skipped === 0 && (
+          (() => {
+            const ht = balances.data.homeTotal;
+            const positive = !ht.net.startsWith('-');
+            return (
+              <p className="mt-2 text-xs text-slate-500">
+                ≈ {positive ? '+' : '−'}
+                {formatMoney(positive ? ht.net : ht.net.slice(1), ht.homeCurrency)} in {ht.homeCurrency}
+                {ht.asOf ? ` · rates ${ht.asOf.slice(0, 10)}` : ''}
+              </p>
+            );
+          })()
+        )}
+        {balances.data?.homeTotal && balances.data.homeTotal.skipped > 0 && (
+          <p className="mt-2 text-xs text-amber-700">
+            Home-currency total unavailable — missing FX rate for {balances.data.homeTotal.skipped}{' '}
+            currency bucket(s).
+          </p>
+        )}
         <div className="mt-4 flex gap-2">
           <Button onClick={() => setShowAddExpense((v) => !v)}>
             {showAddExpense ? 'Cancel' : '+ Add expense'}

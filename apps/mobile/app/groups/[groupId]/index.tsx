@@ -164,6 +164,26 @@ export default function GroupDetailScreen() {
               })}
             </View>
           )}
+          {balances.data?.homeTotal && myNet.length > 0 && balances.data.homeTotal.skipped === 0 ? (
+            (() => {
+              const ht = balances.data.homeTotal;
+              const positive = !ht.net.startsWith('-');
+              return (
+                <Text className="mt-2 text-xs text-slate-500">
+                  ≈ {positive ? '+' : '−'}
+                  {formatMoney(positive ? ht.net : ht.net.slice(1), ht.homeCurrency)} in{' '}
+                  {ht.homeCurrency}
+                  {ht.asOf ? ` · rates ${ht.asOf.slice(0, 10)}` : ''}
+                </Text>
+              );
+            })()
+          ) : null}
+          {balances.data?.homeTotal && balances.data.homeTotal.skipped > 0 ? (
+            <Text className="mt-2 text-xs text-amber-700">
+              Home-currency total unavailable — missing FX rate for{' '}
+              {balances.data.homeTotal.skipped} currency bucket(s).
+            </Text>
+          ) : null}
           <View className="mt-4 flex-row gap-2">
             <View className="flex-1">
               <Button onPress={() => router.push(`/groups/${groupId}/add-expense`)}>

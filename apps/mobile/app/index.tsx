@@ -25,9 +25,14 @@ export default function GroupsList() {
             <H1>Your groups</H1>
             <Sub>Signed in as {me.data?.email ?? '…'}</Sub>
           </View>
-          <Button variant="ghost" onPress={() => logout.mutate()}>
-            Sign out
-          </Button>
+          <View className="flex-row gap-2">
+            <Button variant="ghost" onPress={() => router.push('/settings')}>
+              Settings
+            </Button>
+            <Button variant="ghost" onPress={() => logout.mutate()}>
+              Sign out
+            </Button>
+          </View>
         </View>
 
         {me.data && !me.data.emailVerifiedAt ? (

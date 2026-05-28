@@ -52,6 +52,9 @@ export function Groups() {
           <Button onClick={() => setShowCreate((s) => !s)}>
             {showCreate ? 'Cancel' : 'New group'}
           </Button>
+          <Button variant="ghost" onClick={() => navigate('/settings')}>
+            Settings
+          </Button>
           <Button variant="ghost" onClick={() => logout.mutate()}>
             Sign out
           </Button>

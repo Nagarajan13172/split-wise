@@ -146,6 +146,13 @@ export const authRouter = router({
       avatarKey: user.avatarKey,
     };
   }),
+
+  updateHomeCurrency: protectedProcedure
+    .input(z.object({ homeCurrency: z.string().length(3).toUpperCase() }))
+    .mutation(async ({ ctx, input }) => {
+      const updated = await usersService.updateHomeCurrency(ctx.user.id, input.homeCurrency);
+      return { id: updated.id, homeCurrency: updated.homeCurrency };
+    }),
 });
 
 /* keep tokensService import alive even if unused at module level */

@@ -3,6 +3,7 @@ import { authRouter } from './routers/auth.router.js';
 import { groupsRouter } from './routers/groups.router.js';
 import { expensesRouter } from './routers/expenses.router.js';
 import { receiptsRouter } from './routers/receipts.router.js';
+import { fxRouter } from './routers/fx.router.js';
 
 export const appRouter = router({
   /** Smoke test for client wiring. */
@@ -25,6 +26,7 @@ export const appRouter = router({
   groups: groupsRouter,
   expenses: expensesRouter,
   receipts: receiptsRouter,
+  fx: fxRouter,
 });
 
 export type AppRouter = typeof appRouter;
