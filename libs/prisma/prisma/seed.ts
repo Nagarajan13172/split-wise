@@ -1,5 +1,5 @@
 import { PrismaClient } from '@prisma/client';
-import { CURRENCIES, CATEGORIES } from '../../../packages/shared/src/constants/index.js';
+import { CURRENCIES, CATEGORIES } from '@split-wise/shared';
 
 const prisma = new PrismaClient();
 

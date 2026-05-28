@@ -1,7 +1,10 @@
 import { router, publicProcedure } from './trpc.js';
+import { authRouter } from './routers/auth.router.js';
+import { groupsRouter } from './routers/groups.router.js';
+import { expensesRouter } from './routers/expenses.router.js';
 
 export const appRouter = router({
-  /** Smoke test for client wiring. Phase-0 only; will be replaced by domain routers. */
+  /** Smoke test for client wiring. */
   ping: publicProcedure.query(() => ({ pong: true, at: new Date().toISOString() })),
 
   health: publicProcedure.query(async ({ ctx }) => {
@@ -16,6 +19,10 @@ export const appRouter = router({
     ]);
     return { ok: dbOk && redisOk, db: dbOk, redis: redisOk };
   }),
+
+  auth: authRouter,
+  groups: groupsRouter,
+  expenses: expensesRouter,
 });
 
 export type AppRouter = typeof appRouter;

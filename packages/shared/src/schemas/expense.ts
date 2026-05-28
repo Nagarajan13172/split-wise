@@ -26,6 +26,11 @@ export const zExpenseItem = z.object({
 });
 export type ExpenseItemDTO = z.infer<typeof zExpenseItem>;
 
+/**
+ * Phase 3 keeps split types minimal: only EQUAL. Phase 4 will add EXACT / PERCENT /
+ * SHARES via a discriminated union. For now, clients send the list of member ids
+ * to split among, and the server computes shares deterministically.
+ */
 export const zExpenseCreate = z.object({
   groupId: zCuid,
   paidById: zCuid,
@@ -35,15 +40,22 @@ export const zExpenseCreate = z.object({
   currency: zCurrencyCode,
   occurredAt: zIsoDate,
   categoryKey: z.string().optional(),
-  splitType: SplitType,
-  shares: z.array(zExpenseShare).optional(),
-  items: z.array(zExpenseItem).optional(),
-  receiptId: zCuid.optional(),
+  splitType: z.literal('EQUAL'),
+  splitAmongUserIds: z.array(zCuid).min(1),
   idempotencyKey: z.string().max(100).optional(),
 });
 export type ExpenseCreateDTO = z.infer<typeof zExpenseCreate>;
 
-export const zExpenseUpdate = zExpenseCreate.partial().extend({
+export const zExpenseUpdate = z.object({
+  expenseId: zCuid,
   expectedVersion: z.number().int().min(1),
+  description: z.string().min(1).max(500).optional(),
+  notes: z.string().max(2000).optional(),
+  amount: zPositiveMoney.optional(),
+  currency: zCurrencyCode.optional(),
+  occurredAt: zIsoDate.optional(),
+  categoryKey: z.string().optional(),
+  paidById: zCuid.optional(),
+  splitAmongUserIds: z.array(zCuid).min(1).optional(),
 });
 export type ExpenseUpdateDTO = z.infer<typeof zExpenseUpdate>;

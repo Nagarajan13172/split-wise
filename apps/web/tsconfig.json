@@ -2,6 +2,8 @@
   "extends": "@split-wise/config-tsconfig/react.json",
   "compilerOptions": {
     "baseUrl": ".",
+    "declaration": false,
+    "declarationMap": false,
     "paths": {
       "@/*": ["src/*"]
     }

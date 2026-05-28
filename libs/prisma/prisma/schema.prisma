@@ -67,6 +67,11 @@ enum AuthProvider {
   GOOGLE
 }
 
+enum VerificationKind {
+  EMAIL_VERIFY
+  PASSWORD_RESET
+}
+
 // ---------- Core ----------
 
 model User {
@@ -95,6 +100,21 @@ model User {
   receipts        ReceiptScan[]
   auditEntries    ExpenseAudit[]
   invitesSent     GroupInvite[] @relation("invitedBy")
+  verifications   VerificationToken[]
+}
+
+model VerificationToken {
+  id        String           @id @default(cuid())
+  userId    String
+  kind      VerificationKind
+  tokenHash String           @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime         @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, kind])
 }
 
 model RefreshToken {

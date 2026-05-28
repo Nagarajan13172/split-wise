@@ -2,9 +2,19 @@
   "extends": "@split-wise/config-tsconfig/react-native.json",
   "compilerOptions": {
     "baseUrl": ".",
+    "declaration": false,
+    "declarationMap": false,
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": [
+        "./src/*"
+      ]
     }
   },
-  "include": ["app/**/*", "src/**/*", "*.d.ts", "expo-env.d.ts"]
+  "include": [
+    "app/**/*",
+    "src/**/*",
+    "*.d.ts",
+    "expo-env.d.ts",
+    "nativewind-env.d.ts"
+  ]
 }

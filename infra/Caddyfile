@@ -1,0 +1,55 @@
+# Splitwise prod reverse proxy.
+# Auto-TLS via Let's Encrypt. Set DOMAIN, API_DOMAIN, EMAIL via env when
+# starting Caddy (docker-compose.prod.yml).
+
+{
+	# Global options
+	email {$ADMIN_EMAIL:admin@example.com}
+	servers {
+		protocols h1 h2 h3
+	}
+}
+
+# --- API subdomain ---
+{$API_DOMAIN:api.localhost} {
+	encode gzip zstd
+
+	# Security headers
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "interest-cohort=()"
+		-Server
+	}
+
+	# Rate limit abusive IPs at the edge — additional to app-level limits.
+	# (Caddy doesn't ship rate limiting; add @caddyserver/caddy-rate-limit plugin
+	#  in a custom build if needed. For Phase 1 we rely on app-level limits.)
+
+	reverse_proxy api:4000 {
+		health_uri /healthz
+		health_interval 10s
+		health_timeout 3s
+
+		# Pass real client IP
+		header_up X-Real-IP {remote_host}
+		header_up X-Forwarded-For {remote_host}
+	}
+}
+
+# --- Web app subdomain (serves built Vite SPA) ---
+{$APP_DOMAIN:app.localhost} {
+	encode gzip zstd
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "interest-cohort=()"
+		-Server
+	}
+
+	root * /srv/web
+	try_files {path} /index.html
+	file_server
+}

@@ -1,11 +1,16 @@
 import { z } from 'zod';
 
+/** "true"/"false" coercion — z.coerce.boolean treats any non-empty string as true. */
+const zBoolStr = z
+  .union([z.boolean(), z.string()])
+  .transform((v) => (typeof v === 'boolean' ? v : v.toLowerCase() === 'true'));
+
 const schema = z.object({
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
   API_PORT: z.coerce.number().int().min(1).max(65535).default(4000),
   API_BASE_URL: z.string().url(),
-  WEB_ORIGIN: z.string().url(),
+  WEB_ORIGIN: z.string().min(1),
   DATABASE_URL: z.string().min(1),
   REDIS_URL: z.string().min(1),
   JWT_ACCESS_SECRET: z.string().min(32),
@@ -18,7 +23,17 @@ const schema = z.object({
   S3_SECRET_ACCESS_KEY: z.string().min(1),
   S3_BUCKET_RECEIPTS: z.string().min(1),
   S3_BUCKET_AVATARS: z.string().min(1),
-  S3_FORCE_PATH_STYLE: z.coerce.boolean().default(true),
+  S3_FORCE_PATH_STYLE: zBoolStr.default(true),
+  GOOGLE_OAUTH_CLIENT_ID: z.string().optional(),
+  GOOGLE_OAUTH_CLIENT_SECRET: z.string().optional(),
+  EMAIL_FROM: z.string().min(1),
+  SMTP_HOST: z.string().optional(),
+  SMTP_PORT: z.coerce.number().int().optional(),
+  SMTP_USER: z.string().optional(),
+  SMTP_PASSWORD: z.string().optional(),
+  SMTP_SECURE: zBoolStr.default(false),
+  RESEND_API_KEY: z.string().optional(),
+  APP_BASE_URL: z.string().url(),
 });
 
 export type Env = z.infer<typeof schema>;
