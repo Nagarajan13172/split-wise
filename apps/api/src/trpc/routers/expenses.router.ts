@@ -8,11 +8,11 @@ import {
 } from '@split-wise/shared';
 import { router, protectedProcedure } from '../trpc.js';
 import {
-  ExpensesService,
+  type ExpensesService,
   type SplitSpec,
 } from '../../modules/expenses/expenses.service.js';
-import { SettlementsService } from '../../modules/expenses/settlements.service.js';
-import { BalancesService } from '../../modules/expenses/balances.service.js';
+import { type SettlementsService } from '../../modules/expenses/settlements.service.js';
+import { type BalancesService } from '../../modules/expenses/balances.service.js';
 
 function toSplitSpec(input: ExpenseCreateDTO): SplitSpec {
   switch (input.splitType) {
@@ -24,6 +24,20 @@ function toSplitSpec(input: ExpenseCreateDTO): SplitSpec {
       return { type: 'PERCENT', percents: input.percents };
     case 'EXACT':
       return { type: 'EXACT', exactAmounts: input.exactAmounts };
+    case 'ITEMIZED':
+      return {
+        type: 'ITEMIZED',
+        items: input.items.map((it) => ({
+          label: it.label,
+          amount: it.amount,
+          quantity: it.quantity,
+          assigneeIds: it.assigneeIds,
+        })),
+        tax: input.tax,
+        tip: input.tip,
+        tipDistribution: input.tipDistribution,
+        receiptScanId: input.receiptScanId,
+      };
   }
 }
 

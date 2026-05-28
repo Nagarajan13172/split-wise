@@ -3,3 +3,4 @@ export * from './auth.js';
 export * from './group.js';
 export * from './expense.js';
 export * from './settlement.js';
+export * from './receipt.js';

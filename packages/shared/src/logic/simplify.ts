@@ -1,4 +1,4 @@
-import { Decimal, D, ZERO } from '../utils/decimal.js';
+import { Decimal, ZERO } from '../utils/decimal.js';
 import { computeNetBalances, type ExpenseEvent, type SettlementEvent } from './balances.js';
 
 export interface SimplifiedEdge {

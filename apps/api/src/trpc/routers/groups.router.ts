@@ -8,9 +8,9 @@ import {
   zUpdateMemberRole,
 } from '@split-wise/shared';
 import { router, protectedProcedure, publicProcedure } from '../trpc.js';
-import { GroupsService } from '../../modules/groups/groups.service.js';
-import { InvitesService } from '../../modules/groups/invites.service.js';
-import { UsersService } from '../../modules/users/users.service.js';
+import { type GroupsService } from '../../modules/groups/groups.service.js';
+import { type InvitesService } from '../../modules/groups/invites.service.js';
+import { type UsersService } from '../../modules/users/users.service.js';
 
 let groupsService: GroupsService;
 let invitesService: InvitesService;

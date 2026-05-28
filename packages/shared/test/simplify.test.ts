@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { D, sum, ZERO } from '../src/utils/decimal.js';
+import { type D, ZERO } from '../src/utils/decimal.js';
 import { simplifyDebts } from '../src/logic/simplify.js';
 import { computeNetBalances, type ExpenseEvent } from '../src/logic/balances.js';
 

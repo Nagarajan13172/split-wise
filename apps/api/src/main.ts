@@ -16,11 +16,13 @@ import { InvitesService } from './modules/groups/invites.service.js';
 import { ExpensesService } from './modules/expenses/expenses.service.js';
 import { SettlementsService } from './modules/expenses/settlements.service.js';
 import { BalancesService } from './modules/expenses/balances.service.js';
+import { ReceiptsService } from './modules/receipts/receipts.service.js';
 import { appRouter } from './trpc/app.router.js';
 import { createContext } from './trpc/context.js';
 import { attachAuthServices } from './trpc/routers/auth.router.js';
 import { attachGroupsServices } from './trpc/routers/groups.router.js';
 import { attachExpensesServices } from './trpc/routers/expenses.router.js';
+import { attachReceiptsServices } from './trpc/routers/receipts.router.js';
 
 async function bootstrap() {
   const env = loadEnv();
@@ -52,6 +54,9 @@ async function bootstrap() {
     settlements: app.get(SettlementsService),
     balances: app.get(BalancesService),
   });
+  attachReceiptsServices({
+    receipts: app.get(ReceiptsService),
+  });
 
   expressApp.use(
     '/trpc',
@@ -62,7 +67,7 @@ async function bootstrap() {
   );
 
   await app.listen(env.API_PORT, '0.0.0.0');
-  // eslint-disable-next-line no-console
+   
   console.log(`API listening on http://localhost:${env.API_PORT}`);
 }
 

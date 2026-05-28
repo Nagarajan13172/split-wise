@@ -7,19 +7,36 @@ import {
   splitByShares,
   splitByPercentage,
   splitByExactAmounts,
+  computeItemizedSplit,
   type ShareOutput,
 } from '@split-wise/shared';
+import { ReceiptsService } from '../receipts/receipts.service.js';
 import { PrismaService } from '../../common/prisma/prisma.service.js';
 import { RedisService } from '../../common/redis/redis.service.js';
 import { GroupsService } from '../groups/groups.service.js';
 
 const BALANCES_CACHE_PREFIX = 'balances:group:';
 
+export interface ItemizedItemSpec {
+  label: string;
+  amount: string;
+  quantity?: number;
+  assigneeIds: string[];
+}
+
 export type SplitSpec =
   | { type: 'EQUAL'; userIds: string[] }
   | { type: 'SHARES'; units: Array<{ userId: string; units: string }> }
   | { type: 'PERCENT'; percents: Array<{ userId: string; percent: string }> }
-  | { type: 'EXACT'; exactAmounts: Array<{ userId: string; amount: string }> };
+  | { type: 'EXACT'; exactAmounts: Array<{ userId: string; amount: string }> }
+  | {
+      type: 'ITEMIZED';
+      items: ItemizedItemSpec[];
+      tax?: string;
+      tip?: string;
+      tipDistribution: 'PRO_RATA' | 'EQUAL';
+      receiptScanId?: string;
+    };
 
 export interface CreateExpenseInput {
   actorId: string;
@@ -60,6 +77,11 @@ function participantIdsOf(split: SplitSpec): string[] {
       return split.percents.map((p) => p.userId);
     case 'EXACT':
       return split.exactAmounts.map((a) => a.userId);
+    case 'ITEMIZED': {
+      const set = new Set<string>();
+      for (const item of split.items) for (const id of item.assigneeIds) set.add(id);
+      return [...set];
+    }
   }
 }
 
@@ -82,6 +104,22 @@ function computeSharesForSplit(amount: string, split: SplitSpec): ShareOutput[] 
         total: amount,
         amountsByMember: split.exactAmounts.map((a) => ({ userId: a.userId, amount: a.amount })),
       });
+    case 'ITEMIZED': {
+      // ITEMIZED uses its own computer that also returns per-item shares.
+      // For the parent-expense `shares` list, we return only the aggregated
+      // per-user totals — items themselves persist via the items relation.
+      const result = computeItemizedSplit({
+        items: split.items.map((it) => ({
+          label: it.label,
+          amount: it.amount,
+          assigneeIds: it.assigneeIds,
+        })),
+        tax: split.tax,
+        tip: split.tip,
+        tipDistribution: split.tipDistribution,
+      });
+      return result.perUser.map((u) => ({ userId: u.userId, amount: u.amount }));
+    }
   }
 }
 
@@ -91,6 +129,7 @@ export class ExpensesService {
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(RedisService) private readonly redis: RedisService,
     @Inject(GroupsService) private readonly groups: GroupsService,
+    @Inject(ReceiptsService) private readonly receipts: ReceiptsService,
   ) {}
 
   async create(input: CreateExpenseInput) {
@@ -101,6 +140,19 @@ export class ExpensesService {
     const categoryId = input.categoryKey
       ? (await this.prisma.category.findUnique({ where: { key: input.categoryKey } }))?.id
       : undefined;
+
+    // For ITEMIZED, we persist per-item shares (with itemId) PLUS per-user
+    // tax+tip shares (without itemId). Sum across all rows = expense.amount.
+    if (input.split.type === 'ITEMIZED') {
+      const expense = await this.createItemized(input, input.split, categoryId);
+      if (input.split.receiptScanId) {
+        await this.receipts
+          .markConfirmed(input.actorId, input.split.receiptScanId)
+          .catch(() => null);
+      }
+      await this.invalidateBalances(input.groupId);
+      return this.toDTO(expense);
+    }
 
     let shares: ShareOutput[];
     try {
@@ -143,6 +195,99 @@ export class ExpensesService {
     return this.toDTO(expense);
   }
 
+  private async createItemized(
+    input: CreateExpenseInput,
+    split: Extract<SplitSpec, { type: 'ITEMIZED' }>,
+    categoryId: string | undefined,
+  ) {
+    // Compute per-item-per-user shares + per-user tax+tip shares.
+    const result = computeItemizedSplit({
+      items: split.items.map((it) => ({
+        label: it.label,
+        amount: it.amount,
+        assigneeIds: it.assigneeIds,
+      })),
+      tax: split.tax,
+      tip: split.tip,
+      tipDistribution: split.tipDistribution,
+    });
+
+    // Sanity check: requested amount should match computed total (within 1 cent).
+    const requested = new PrismaDecimal(input.amount);
+    const computed = new PrismaDecimal(result.total);
+    if (requested.minus(computed).abs().greaterThan(new PrismaDecimal('0.01'))) {
+      throw new TRPCError({
+        code: 'BAD_REQUEST',
+        message: `itemized total ${result.total} does not match requested amount ${input.amount}`,
+      });
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      const created = await tx.expense.create({
+        data: {
+          groupId: input.groupId,
+          paidById: input.paidById,
+          createdById: input.actorId,
+          categoryId,
+          description: input.description,
+          notes: input.notes,
+          currency: input.currency,
+          amount: new PrismaDecimal(result.total),
+          occurredAt: new Date(input.occurredAt),
+          splitType: 'ITEMIZED',
+          receiptId: split.receiptScanId,
+        },
+      });
+
+      // Create items + per-item shares
+      for (let i = 0; i < split.items.length; i++) {
+        const item = split.items[i]!;
+        const perItem = result.perItem[i]!;
+        const createdItem = await tx.expenseItem.create({
+          data: {
+            expenseId: created.id,
+            label: item.label,
+            amount: new PrismaDecimal(item.amount),
+            quantity: item.quantity ?? 1,
+            position: i,
+          },
+        });
+        for (const share of perItem.shares) {
+          await tx.expenseShare.create({
+            data: {
+              expenseId: created.id,
+              userId: share.userId,
+              itemId: createdItem.id,
+              amount: new PrismaDecimal(share.amount),
+            },
+          });
+        }
+      }
+
+      // Create per-user tax+tip shares (itemId null) — these complete the balance math.
+      for (const tt of result.perUserTaxTip) {
+        if (new PrismaDecimal(tt.amount).isZero()) continue;
+        await tx.expenseShare.create({
+          data: {
+            expenseId: created.id,
+            userId: tt.userId,
+            amount: new PrismaDecimal(tt.amount),
+          },
+        });
+      }
+
+      await this.writeAudit(tx, created.id, input.actorId, 'CREATE', null, {
+        ...this.serialize(created),
+        itemized: { subtotal: result.subtotal, tax: split.tax, tip: split.tip },
+      });
+
+      return tx.expense.findUniqueOrThrow({
+        where: { id: created.id },
+        include: { shares: true },
+      });
+    });
+  }
+
   async list(actorId: string, groupId: string, opts: { limit?: number; cursor?: string } = {}) {
     await this.groups.requireRole(actorId, groupId, ['OWNER', 'ADMIN', 'MEMBER']);
     const limit = Math.min(opts.limit ?? 30, 100);
@@ -172,6 +317,7 @@ export class ExpensesService {
       where: { id: expenseId, deletedAt: null },
       include: {
         shares: { include: { user: { select: { id: true, displayName: true } } } },
+        items: { orderBy: { position: 'asc' } },
         paidBy: { select: { id: true, displayName: true } },
         createdBy: { select: { id: true, displayName: true } },
         category: { select: { key: true, label: true, icon: true } },
@@ -179,17 +325,37 @@ export class ExpensesService {
     });
     if (!expense) throw new TRPCError({ code: 'NOT_FOUND', message: 'expense not found' });
     await this.groups.requireRole(actorId, expense.groupId, ['OWNER', 'ADMIN', 'MEMBER']);
+
+    // Build aggregated per-user shares (with displayName) for the client.
+    const displayByUser = new Map<string, string>();
+    for (const s of expense.shares) displayByUser.set(s.userId, s.user.displayName);
+    const aggregated = aggregateSharesByUser(expense.shares).map((s) => ({
+      userId: s.userId,
+      displayName: displayByUser.get(s.userId) ?? 'Member',
+      amount: s.amount,
+      rawUnit: expense.shares.find((row) => row.userId === s.userId)?.rawUnit?.toString() ?? null,
+    }));
+
+    // For ITEMIZED, expose items + per-item assignees so the editor can re-render.
+    const itemsDTO = expense.items.map((item) => ({
+      id: item.id,
+      label: item.label,
+      amount: item.amount.toFixed(2),
+      quantity: item.quantity,
+      position: item.position,
+      assigneeIds: expense.shares
+        .filter((s) => s.itemId === item.id)
+        .map((s) => s.userId),
+    }));
+
     return {
       ...this.toListItemDTO(expense),
       notes: expense.notes,
       createdBy: expense.createdBy,
       splitType: expense.splitType,
-      shares: expense.shares.map((s) => ({
-        userId: s.userId,
-        displayName: s.user.displayName,
-        amount: s.amount.toFixed(2),
-        rawUnit: s.rawUnit ? s.rawUnit.toString() : null,
-      })),
+      shares: aggregated,
+      items: itemsDTO,
+      receiptScanId: expense.receiptId ?? null,
       version: expense.version,
     };
   }
@@ -359,7 +525,11 @@ export class ExpensesService {
     }> = [];
 
     for (const e of expenses) {
-      const myShare = e.shares.find((s) => s.userId === userId);
+      // Sum all my-shares (ITEMIZED splits store multiple rows per user).
+      const mySharesTotal = e.shares
+        .filter((s) => s.userId === userId)
+        .reduce((acc, s) => acc.plus(s.amount), new PrismaDecimal(0));
+      const myShare = mySharesTotal.isZero() ? undefined : { amount: mySharesTotal };
       const youPaid = e.paidById === userId;
       let subtitle: string;
       if (youPaid && myShare) {
@@ -512,7 +682,25 @@ export class ExpensesService {
       occurredAt: e.occurredAt.toISOString(),
       paidBy: e.paidBy,
       category: e.category,
-      shares: e.shares.map((s) => ({ userId: s.userId, amount: s.amount.toFixed(2) })),
+      shares: aggregateSharesByUser(e.shares),
     };
   }
+}
+
+/**
+ * For ITEMIZED expenses we persist multiple ExpenseShare rows per user (one
+ * per item + one for tax+tip). Clients want a single per-user total — sum
+ * across rows so the consumer-facing shape stays consistent.
+ */
+function aggregateSharesByUser(
+  shares: ReadonlyArray<{ userId: string; amount: PrismaDecimal }>,
+): Array<{ userId: string; amount: string }> {
+  const totals = new Map<string, PrismaDecimal>();
+  for (const s of shares) {
+    totals.set(s.userId, (totals.get(s.userId) ?? new PrismaDecimal(0)).plus(s.amount));
+  }
+  return [...totals.entries()].map(([userId, amount]) => ({
+    userId,
+    amount: amount.toFixed(2),
+  }));
 }

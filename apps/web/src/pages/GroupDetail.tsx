@@ -504,14 +504,16 @@ function AddExpenseForm({
       await utils.expenses.list.cancel({ groupId });
       const prev = utils.expenses.list.getData({ groupId, limit: 30 });
       const payer = members.find((m) => m.id === input.paidById);
-      const participantIds =
+      const participantIds: string[] =
         input.splitType === 'EQUAL'
           ? input.splitAmongUserIds
           : input.splitType === 'SHARES'
             ? input.shareUnits.map((u) => u.userId)
             : input.splitType === 'PERCENT'
               ? input.percents.map((p) => p.userId)
-              : input.exactAmounts.map((a) => a.userId);
+              : input.splitType === 'EXACT'
+                ? input.exactAmounts.map((a) => a.userId)
+                : [...new Set(input.items.flatMap((it) => it.assigneeIds))];
       utils.expenses.list.setData({ groupId, limit: 30 }, (cur) => {
         const item = {
           id: `tmp_${Math.random().toString(36).slice(2)}`,

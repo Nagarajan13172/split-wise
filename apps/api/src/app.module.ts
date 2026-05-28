@@ -9,6 +9,7 @@ import { HealthModule } from './modules/health/health.module.js';
 import { UsersModule } from './modules/users/users.module.js';
 import { AuthModule } from './modules/auth/auth.module.js';
 import { GroupsModule } from './modules/groups/groups.module.js';
+import { ReceiptsModule } from './modules/receipts/receipts.module.js';
 import { ExpensesModule } from './modules/expenses/expenses.module.js';
 
 @Module({
@@ -30,6 +31,7 @@ import { ExpensesModule } from './modules/expenses/expenses.module.js';
     UsersModule,
     AuthModule,
     GroupsModule,
+    ReceiptsModule,
     ExpensesModule,
   ],
 })

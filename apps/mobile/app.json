@@ -24,7 +24,19 @@
     },
     "plugins": [
       "expo-router",
-      "expo-secure-store"
+      "expo-secure-store",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow Splitwise to access your camera so you can snap receipts."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow Splitwise to access your photo library so you can pick a receipt image."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": false

@@ -1,4 +1,4 @@
-import { Decimal, D, ZERO } from '../utils/decimal.js';
+import { type Decimal, D, ZERO } from '../utils/decimal.js';
 
 export interface ExpenseEvent {
   paidById: string;

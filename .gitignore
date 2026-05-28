@@ -69,3 +69,4 @@ infra/data/
 *.pem
 *.key
 !libs/prisma/migrations/**/*.sql
+apps/web/vite.config.ts.timestamp-*.mjs

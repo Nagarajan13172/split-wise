@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { D, sum } from '../src/utils/decimal.js';
+import { sum } from '../src/utils/decimal.js';
 import {
   splitByExactAmounts,
   splitByPercentage,

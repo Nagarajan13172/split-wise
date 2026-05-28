@@ -1,4 +1,4 @@
-import { Decimal, D, type DecimalLike } from '../utils/decimal.js';
+import { type Decimal, D, type DecimalLike } from '../utils/decimal.js';
 import { getCurrency } from '../constants/currencies.js';
 
 export interface FxRate {

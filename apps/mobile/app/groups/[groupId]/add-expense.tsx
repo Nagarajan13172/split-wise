@@ -81,14 +81,21 @@ export default function AddExpenseScreen() {
       await utils.expenses.list.cancel({ groupId });
       const prev = utils.expenses.list.getData({ groupId, limit: 30 });
       const payer = members.find((m) => m.id === input.paidById);
-      const participantIds =
+      const participantIds: string[] =
         input.splitType === 'EQUAL'
           ? input.splitAmongUserIds
           : input.splitType === 'SHARES'
             ? input.shareUnits.map((u) => u.userId)
             : input.splitType === 'PERCENT'
               ? input.percents.map((p) => p.userId)
-              : input.exactAmounts.map((a) => a.userId);
+              : input.splitType === 'EXACT'
+                ? input.exactAmounts.map((a) => a.userId)
+                : // ITEMIZED — flatten unique assignees across items
+                  [
+                    ...new Set(
+                      input.items.flatMap((it) => it.assigneeIds),
+                    ),
+                  ];
       utils.expenses.list.setData({ groupId, limit: 30 }, (cur) => {
         const item = {
           id: newClientId(),
@@ -214,6 +221,17 @@ export default function AddExpenseScreen() {
         <View className="mt-2">
           <H1>Add expense</H1>
           <Sub>{group.data?.name ?? '…'}</Sub>
+        </View>
+
+        <View className="mt-4">
+          <Button
+            variant="ghost"
+            onPress={() =>
+              router.push({ pathname: '/groups/[groupId]/scan-receipt', params: { groupId } })
+            }
+          >
+            📸 Scan a receipt instead
+          </Button>
         </View>
 
         <View className="mt-6 gap-4">

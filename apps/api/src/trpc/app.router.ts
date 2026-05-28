@@ -2,6 +2,7 @@ import { router, publicProcedure } from './trpc.js';
 import { authRouter } from './routers/auth.router.js';
 import { groupsRouter } from './routers/groups.router.js';
 import { expensesRouter } from './routers/expenses.router.js';
+import { receiptsRouter } from './routers/receipts.router.js';
 
 export const appRouter = router({
   /** Smoke test for client wiring. */
@@ -23,6 +24,7 @@ export const appRouter = router({
   auth: authRouter,
   groups: groupsRouter,
   expenses: expensesRouter,
+  receipts: receiptsRouter,
 });
 
 export type AppRouter = typeof appRouter;

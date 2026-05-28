@@ -22,7 +22,6 @@ export function VerifyEmail({ token, navigate }: { token: string; navigate: Navi
         },
       },
     );
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return (

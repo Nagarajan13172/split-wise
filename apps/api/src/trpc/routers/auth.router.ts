@@ -7,9 +7,9 @@ import {
 } from '@split-wise/shared';
 import { router, publicProcedure, protectedProcedure } from '../trpc.js';
 import { REFRESH_COOKIE } from '../context.js';
-import { AuthService } from '../../modules/auth/auth.service.js';
-import { UsersService } from '../../modules/users/users.service.js';
-import { TokensService } from '../../modules/auth/tokens.service.js';
+import { type AuthService } from '../../modules/auth/auth.service.js';
+import { type UsersService } from '../../modules/users/users.service.js';
+import { type TokensService } from '../../modules/auth/tokens.service.js';
 import { loadEnv } from '../../config/env.js';
 
 /** Use a stable module-level instance per service so DI inside Nest is bypassed for

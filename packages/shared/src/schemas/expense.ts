@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { zCuid, zPositiveMoney, zNonNegativeMoney, zCurrencyCode, zIsoDate } from './primitives.js';
+import { zItemizedItemInput } from './receipt.js';
 
 export const SplitType = z.enum(['EQUAL', 'EXACT', 'PERCENT', 'SHARES', 'ITEMIZED']);
 export type SplitType = z.infer<typeof SplitType>;
@@ -94,11 +95,24 @@ const zExpenseExactPayload = z.object({
     .min(1),
 });
 
+/** ITEMIZED — line items with per-item assignees, plus optional tax/tip. */
+const zExpenseItemizedPayload = z.object({
+  ...expenseBaseShape,
+  splitType: z.literal('ITEMIZED'),
+  items: z.array(zItemizedItemInput).min(1),
+  tax: zNonNegativeMoney.optional(),
+  tip: zNonNegativeMoney.optional(),
+  tipDistribution: z.enum(['PRO_RATA', 'EQUAL']).default('PRO_RATA'),
+  /** Optional link back to a ReceiptScan. */
+  receiptScanId: zCuid.optional(),
+});
+
 export const zExpenseCreate = z.discriminatedUnion('splitType', [
   zExpenseEqualPayload,
   zExpenseSharesPayload,
   zExpensePercentPayload,
   zExpenseExactPayload,
+  zExpenseItemizedPayload,
 ]);
 export type ExpenseCreateDTO = z.infer<typeof zExpenseCreate>;
 
